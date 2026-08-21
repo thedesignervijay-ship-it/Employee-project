@@ -1,8 +1,3 @@
-// Employees Page Component
-// Displays list of employees with their work mode and derived salary
-// Supports create, edit, delete, and detail view operations
-// Salary is derived from the assigned work mode (not stored on employee)
-
 import { useState, useEffect, useCallback } from "react";
 import {
   fetchEmployees,
@@ -12,23 +7,25 @@ import {
   deleteEmployee,
 } from "../api.ts";
 import type { Employee, WorkMode } from "../api.ts";
+import Modal from "../components/Modal.tsx";
+import ConfirmDialog from "../components/ConfirmDialog.tsx";
+import PageHeader from "../components/PageHeader.tsx";
+import DataTable from "../components/DataTable.tsx";
 
 function Employees() {
-  // State for employees and work modes lists
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [workModes, setWorkModes] = useState<WorkMode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Form and selection state
   const [editing, setEditing] = useState<Employee | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState("");
   const [formWorkModeId, setFormWorkModeId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Load both employees and work modes in parallel
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -43,17 +40,14 @@ function Employees() {
     }
   }, []);
 
-  // Load on component mount
   useEffect(() => {
     load();
   }, [load]);
 
-  // Handle form submission (create or update)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
-    // Client-side validation
     if (!formName.trim()) {
       setFormError("Name is required");
       return;
@@ -64,13 +58,11 @@ function Employees() {
     }
 
     try {
-      // Call create or update API based on editing state
       if (editing) {
         await updateEmployee(editing.id, { name: formName.trim(), work_mode_id: formWorkModeId });
       } else {
         await createEmployee({ name: formName.trim(), work_mode_id: formWorkModeId });
       }
-      // Reset form and reload list
       setFormName("");
       setFormWorkModeId("");
       setEditing(null);
@@ -82,19 +74,18 @@ function Employees() {
     }
   };
 
-  // Handle delete with confirmation
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this employee?")) return;
     try {
       await deleteEmployee(id);
       setSelectedEmployee(null);
+      setDeleteTarget(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete");
+      setDeleteTarget(null);
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete");
     }
   };
 
-  // Start editing an existing employee
   const startEdit = (emp: Employee) => {
     setEditing(emp);
     setFormName(emp.name);
@@ -104,7 +95,6 @@ function Employees() {
     setFormError(null);
   };
 
-  // Start creating a new employee
   const startCreate = () => {
     setEditing(null);
     setFormName("");
@@ -114,152 +104,163 @@ function Employees() {
     setFormError(null);
   };
 
-  // View employee detail
   const viewEmployee = (emp: Employee) => {
     setSelectedEmployee(emp);
     setShowForm(false);
     setEditing(null);
   };
 
-  // Show loading or error state
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error-message">{error}</div>;
 
-  // Calculate summary stats
-  const totalEmployees = employees.length;
-  const totalWorkModes = workModes.length;
-  const totalSalary = employees.reduce((sum, emp) => sum + (emp.monthly_salary || 0), 0);
-  const avgSalary = totalEmployees > 0 ? Math.round(totalSalary / totalEmployees) : 0;
+  const columns = [
+    {
+      header: "Name",
+      render: (emp: Employee) => (
+        <button className="btn-link" onClick={() => viewEmployee(emp)}>
+          {emp.name}
+        </button>
+      ),
+    },
+    { header: "Work Mode", render: (emp: Employee) => emp.work_mode_name },
+    {
+      header: "Monthly Salary",
+      className: "text-right",
+      render: (emp: Employee) => `₹${emp.monthly_salary?.toLocaleString()}`,
+    },
+    {
+      header: "Actions",
+      className: "text-center actions",
+      render: (emp: Employee) => (
+        <>
+          <button className="btn-icon edit" onClick={() => startEdit(emp)}>
+            Edit
+          </button>
+          <button className="btn-icon delete" onClick={() => setDeleteTarget(emp)}>
+            Delete
+          </button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div>
-      {/* Page Header */}
-      <div className="page-header">
-        <h2 className="page-title">Employees</h2>
-        <button className="btn btn-primary" onClick={startCreate}>
-          + New Employee
-        </button>
-      </div>
+      <PageHeader
+        title="Employees"
+        action={
+          <button className="btn btn-primary" onClick={startCreate}>
+            + New Employee
+          </button>
+        }
+      />
 
-      {/* Summary Stats */}
-      {employees.length > 0 && (
-        <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-value">{totalEmployees}</div>
-            <div className="stat-label">Total Employees</div>
+      <Modal
+        open={showForm}
+        onClose={() => { setShowForm(false); setEditing(null); }}
+        title={editing ? "Edit Employee" : "New Employee"}
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => { setShowForm(false); setEditing(null); }}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" form="employee-form">
+              {editing ? "Update" : "Create"}
+            </button>
+          </>
+        }
+      >
+        <form id="employee-form" onSubmit={handleSubmit}>
+          <div className="modal-body">
+            {formError && <div className="form-error mb-4">{formError}</div>}
+            <div className="form-group">
+              <label className="form-label">Name</label>
+              <input
+                className="form-input"
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder="e.g. John Doe"
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Work Mode</label>
+              <select
+                className="form-select"
+                value={formWorkModeId}
+                onChange={(e) => setFormWorkModeId(e.target.value)}
+              >
+                <option value="">Select work mode</option>
+                {workModes.map((wm) => (
+                  <option key={wm.id} value={wm.id}>
+                    {wm.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div className="stat-card">
-            <div className="stat-value">{totalWorkModes}</div>
-            <div className="stat-label">Work Modes</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">₹{totalSalary.toLocaleString()}</div>
-            <div className="stat-label">Total Payroll</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">₹{avgSalary.toLocaleString()}</div>
-            <div className="stat-label">Avg Salary</div>
-          </div>
-        </div>
-      )}
+        </form>
+      </Modal>
 
-      {/* Create/Edit Modal */}
-      {showForm && (
-        <div className="modal-overlay" onClick={() => { setShowForm(false); setEditing(null); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">{editing ? "Edit Employee" : "New Employee"}</h3>
-              <button className="btn-icon" onClick={() => { setShowForm(false); setEditing(null); }}>
-                ×
-              </button>
+      <Modal
+        open={!!selectedEmployee}
+        onClose={() => setSelectedEmployee(null)}
+        title="Employee Detail"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setSelectedEmployee(null)}>
+              Close
+            </button>
+            <button className="btn btn-primary" onClick={() => selectedEmployee && startEdit(selectedEmployee)}>
+              Edit
+            </button>
+            <button className="btn btn-danger" onClick={() => selectedEmployee && setDeleteTarget(selectedEmployee)}>
+              Delete
+            </button>
+          </>
+        }
+      >
+        <div className="modal-body">
+          <div className="form-group">
+            <label className="form-label">Name</label>
+            <div className="form-input" style={{ backgroundColor: 'var(--color-surface)' }}>
+              {selectedEmployee?.name}
             </div>
-            <form onSubmit={handleSubmit}>
-              <div className="modal-body">
-                {formError && <div className="form-error mb-4">{formError}</div>}
-                <div className="form-group">
-                  <label className="form-label">Name</label>
-                  <input
-                    className="form-input"
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Work Mode</label>
-                  <select
-                    className="form-select"
-                    value={formWorkModeId}
-                    onChange={(e) => setFormWorkModeId(e.target.value)}
-                  >
-                    <option value="">Select work mode</option>
-                    {workModes.map((wm) => (
-                      <option key={wm.id} value={wm.id}>
-                        {wm.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => { setShowForm(false); setEditing(null); }}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  {editing ? "Update" : "Create"}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
-      )}
-
-      {/* Employee Detail Modal */}
-      {selectedEmployee && (
-        <div className="modal-overlay" onClick={() => setSelectedEmployee(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Employee Detail</h3>
-              <button className="btn-icon" onClick={() => setSelectedEmployee(null)}>
-                ×
-              </button>
+          <div className="form-group">
+            <label className="form-label">Work Mode</label>
+            <div className="form-input" style={{ backgroundColor: 'var(--color-surface)' }}>
+              {selectedEmployee?.work_mode_name}
             </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Name</label>
-                <div className="form-input" style={{ backgroundColor: 'var(--color-surface)' }}>
-                  {selectedEmployee.name}
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Work Mode</label>
-                <div className="form-input" style={{ backgroundColor: 'var(--color-surface)' }}>
-                  {selectedEmployee.work_mode_name}
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Monthly Salary</label>
-                <div className="form-input" style={{ backgroundColor: 'var(--color-surface)' }}>
-                  ₹{selectedEmployee.monthly_salary?.toLocaleString()}
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setSelectedEmployee(null)}>
-                Close
-              </button>
-              <button className="btn btn-primary" onClick={() => startEdit(selectedEmployee)}>
-                Edit
-              </button>
-              <button className="btn btn-danger" onClick={() => handleDelete(selectedEmployee.id)}>
-                Delete
-              </button>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Monthly Salary</label>
+            <div className="form-input" style={{ backgroundColor: 'var(--color-surface)' }}>
+              ₹{selectedEmployee?.monthly_salary?.toLocaleString()}
             </div>
           </div>
         </div>
-      )}
+      </Modal>
 
-      {/* Employees Table */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete Employee"
+        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
+        onConfirm={() => {
+          if (deleteTarget) handleDelete(deleteTarget.id);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={!!deleteError}
+        title="Cannot Delete Employee"
+        message={deleteError ?? ""}
+        confirmLabel="OK"
+        onCancel={() => setDeleteError(null)}
+        showCancel={false}
+        danger={false}
+      />
+
       {employees.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">👥</div>
@@ -270,42 +271,7 @@ function Employees() {
           </button>
         </div>
       ) : (
-        <div className="table-container">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Work Mode</th>
-                <th className="text-right">Monthly Salary</th>
-                <th className="text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {employees.map((emp) => (
-                <tr key={emp.id}>
-                  <td>
-                    <button
-                      className="btn-link"
-                      onClick={() => viewEmployee(emp)}
-                    >
-                      {emp.name}
-                    </button>
-                  </td>
-                  <td>{emp.work_mode_name}</td>
-                  <td className="text-right">₹{emp.monthly_salary?.toLocaleString()}</td>
-                  <td className="text-center actions">
-                    <button className="btn-icon edit" onClick={() => startEdit(emp)}>
-                      Edit
-                    </button>
-                    <button className="btn-icon delete" onClick={() => handleDelete(emp.id)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable columns={columns} data={employees} keyFn={(emp) => emp.id} />
       )}
     </div>
   );
